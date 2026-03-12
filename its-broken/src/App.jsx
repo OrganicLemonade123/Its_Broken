@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Diagnose from "./Diagnose";
 
 const DEFAULT_TOOL_CATEGORIES = ["Power Tools", "Hand Tools", "Electrical", "Plumbing", "Safety Gear", "Lifting & Rigging", "Test Equipment", "Other"];
 const DEFAULT_MATERIAL_CATEGORIES = ["Lumber & Sheet Goods", "Fasteners", "Plumbing Supplies", "Electrical Supplies", "Paint & Finishes", "Concrete & Masonry", "Adhesives & Sealants", "Other"];
@@ -47,7 +48,7 @@ const EMPTY_JOB_FORM = { title: "", client: "", phone: "", address: "", status: 
 
 export default function InventoryApp() {
   // --- Section ---
-  const [section, setSection] = useState("jobs"); // "jobs" | "tools" | "materials" | "repairs"
+  const [section, setSection] = useState("jobs"); // "jobs" | "tools" | "materials" | "repairs" | "diagnose"
 
   // --- Shared state ---
   const [locations, setLocations] = useState(() => {
@@ -319,6 +320,13 @@ export default function InventoryApp() {
   };
 
   const showFab = (section === "jobs" && jobView === "list") || (section === "tools" && toolView === "list") || (section === "materials" && materialView === "list") || (section === "repairs" && repairView === "list");
+  // Diagnose pre-fill handler
+  const handleLogRepair = (prefill) => {
+    setRepairForm({ ...EMPTY_REPAIR_FORM, ...prefill });
+    setRepairEditMode(false);
+    setRepairView("add");
+    setSection("repairs");
+  };
 
   // --- Styles ---
   const st = {
@@ -1102,6 +1110,9 @@ export default function InventoryApp() {
         repairView === "add" ? renderRepairForm() :
         renderRepairList()
       )}
+      {section === "diagnose" && (
+        <Diagnose onLogRepair={handleLogRepair} />
+      )}
       {showFab && (
         <button style={st.fab} onClick={
           section === "jobs" ? openAddJob :
@@ -1126,6 +1137,10 @@ export default function InventoryApp() {
         <button style={st.navBtn(section === "repairs")} onClick={() => setSection("repairs")}>
           <span style={{ fontSize: 18 }}>🛠️</span>
           <span>Repairs</span>
+        </button>
+        <button style={st.navBtn(section === "diagnose")} onClick={() => setSection("diagnose")}>
+          <span style={{ fontSize: 18 }}>🧠</span>
+          <span>Diagnose</span>
         </button>
       </div>
     </div>
