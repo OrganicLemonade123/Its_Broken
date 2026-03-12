@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(BASE_DIR=\"/c/Users/JackO''Neil/Documents/It''s_Broken\")",
+      "Read(//c/Users/JackO'Neil/Documents/It's_Broken/**)",
+      "Bash(BASE_DIR=\"/c/Users/JackO''''Neil/Documents/It''''s_Broken\")"
+    ]
+  }
+}
