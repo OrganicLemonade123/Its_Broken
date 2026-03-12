@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 
 const CATEGORIES = ["Power Tools", "Hand Tools", "Electrical", "Plumbing", "Safety Gear", "Lifting & Rigging", "Test Equipment", "Other"];
-const LOCATIONS = ["Job Site A", "Job Site B", "Shop / Warehouse", "Van", "Loaned Out", "Unknown"];
+const DEFAULT_LOCATIONS = ["Job Site A", "Job Site B", "Shop / Warehouse", "Van", "Loaned Out", "Unknown"];
 const STATUS = {
   good: { label: "Good", color: "#22c55e", bg: "#052e16" },
   needs_repair: { label: "Needs Repair", color: "#f97316", bg: "#431407" },
@@ -17,13 +17,31 @@ const sampleItems = [
 
 export default function InventoryApp() {
   const [items, setItems] = useState(sampleItems);
+  const [locations, setLocations] = useState(DEFAULT_LOCATIONS);
   const [view, setView] = useState("list"); // list | add | detail
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ name: "", category: "Power Tools", location: "Van", status: "good", notes: "", photo: null });
   const [editMode, setEditMode] = useState(false);
+  const [newLocation, setNewLocation] = useState("");
+  const [showAddLocation, setShowAddLocation] = useState(false);
   const fileRef = useRef();
+
+  const addLocation = () => {
+    const trimmed = newLocation.trim();
+    if (!trimmed || locations.includes(trimmed)) return;
+    setLocations(prev => [...prev, trimmed]);
+    setForm(f => ({ ...f, location: trimmed }));
+    setNewLocation("");
+    setShowAddLocation(false);
+  };
+
+  const deleteLocation = (loc) => {
+    if (locations.length <= 1) return;
+    setLocations(prev => prev.filter(l => l !== loc));
+    if (form.location === loc) setForm(f => ({ ...f, location: locations.filter(l => l !== loc)[0] }));
+  };
 
   const filtered = items.filter(i => {
     const matchFilter = filter === "all" || i.status === filter;
@@ -66,8 +84,10 @@ export default function InventoryApp() {
   };
 
   const openAdd = () => {
-    setForm({ name: "", category: "Power Tools", location: "Van", status: "good", notes: "", photo: null });
+    setForm({ name: "", category: "Power Tools", location: locations[0] || "", status: "good", notes: "", photo: null });
     setEditMode(false);
+    setShowAddLocation(false);
+    setNewLocation("");
     setView("add");
   };
 
@@ -187,8 +207,41 @@ export default function InventoryApp() {
           <div style={styles.formGroup}>
             <label style={styles.formLabel}>Location</label>
             <select style={styles.formSelect} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}>
-              {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+              {locations.map(l => <option key={l}>{l}</option>)}
             </select>
+            {/* Location management */}
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              {!showAddLocation ? (
+                <button style={{ background: "none", border: "1px dashed #333", borderRadius: 6, padding: "6px 10px", color: "#555", fontSize: 11, cursor: "pointer", fontFamily: "inherit", textAlign: "left", letterSpacing: "0.08em" }}
+                  onClick={() => setShowAddLocation(true)}>
+                  + Add new location
+                </button>
+              ) : (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    style={{ ...styles.formInput, flex: 1, padding: "7px 10px", fontSize: 13 }}
+                    placeholder="New location name..."
+                    value={newLocation}
+                    onChange={e => setNewLocation(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addLocation()}
+                    autoFocus
+                  />
+                  <button style={{ ...styles.btnPrimary, flex: "none", padding: "7px 12px" }} onClick={addLocation}>Add</button>
+                  <button style={{ background: "none", border: "1px solid #333", borderRadius: 8, padding: "7px 10px", color: "#666", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }} onClick={() => { setShowAddLocation(false); setNewLocation(""); }}>✕</button>
+                </div>
+              )}
+              {/* List existing locations with delete */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 2 }}>
+                {locations.map(loc => (
+                  <div key={loc} style={{ display: "flex", alignItems: "center", gap: 3, background: form.location === loc ? "#1a1a1a" : "transparent", border: `1px solid ${form.location === loc ? "#333" : "#1a1a1a"}`, borderRadius: 5, padding: "3px 6px" }}>
+                    <span style={{ fontSize: 10, color: form.location === loc ? "#ccc" : "#444" }}>{loc}</span>
+                    {locations.length > 1 && (
+                      <button onClick={() => deleteLocation(loc)} style={{ background: "none", border: "none", color: "#ef444466", fontSize: 10, cursor: "pointer", padding: "0 1px", lineHeight: 1, fontFamily: "inherit" }} title="Remove location">✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <div style={styles.formGroup}>
             <label style={styles.formLabel}>Status</label>
