@@ -33,7 +33,7 @@ const sampleTools = [
 ];
 
 const EMPTY_ITEM_FORM = { name: "", category: "", location: "", status: "good", notes: "", photo: null };
-const EMPTY_REPAIR_FORM = { problem: "", description: "", category: "", location: "", priority: "medium", status: "open", dueDate: "", jobId: null, photos: [], partsNeeded: "", estimatedCost: "", actualCost: "", notes: "" };
+const EMPTY_REPAIR_FORM = { problem: "", description: "", category: "", location: "", priority: "medium", status: "open", dueDate: "", jobId: null, photos: [], partsNeeded: "", estimatedCost: "", actualCost: "", notes: "", materialsUsed: [], materialsDeducted: false };
 
 const JOB_STATUS = {
   quoted:      { label: "Quoted",      color: "#6b7280", bg: "#111827" },
@@ -43,7 +43,7 @@ const JOB_STATUS = {
   invoiced:    { label: "Invoiced",    color: "#f97316", bg: "#431407" },
 };
 
-const EMPTY_JOB_FORM = { title: "", client: "", phone: "", address: "", status: "scheduled", dateScheduled: "", dateCompleted: "", estimatedCost: "", actualCost: "", photos: [], notes: "" };
+const EMPTY_JOB_FORM = { title: "", client: "", phone: "", address: "", status: "scheduled", dateScheduledOn: "", dateScheduledFor: "", dateCompleted: "", estimatedCost: "", actualCost: "", photos: [], notes: "" };
 
 export default function InventoryApp() {
   // --- Section ---
@@ -84,7 +84,7 @@ export default function InventoryApp() {
   const [selectedMaterial, setSelectedMaterial] = useState(null);
   const [materialFilter, setMaterialFilter] = useState("all");
   const [materialSearch, setMaterialSearch] = useState("");
-  const [materialForm, setMaterialForm] = useState({ ...EMPTY_ITEM_FORM, category: DEFAULT_MATERIAL_CATEGORIES[0] });
+  const [materialForm, setMaterialForm] = useState({ ...EMPTY_ITEM_FORM, category: DEFAULT_MATERIAL_CATEGORIES[0], quantity: "", unit: "" });
   const [materialEditMode, setMaterialEditMode] = useState(false);
   const [newMaterialCategory, setNewMaterialCategory] = useState("");
   const [showAddMaterialCategory, setShowAddMaterialCategory] = useState(false);
@@ -102,6 +102,7 @@ export default function InventoryApp() {
   const [jobSearch, setJobSearch] = useState("");
   const [jobForm, setJobForm] = useState(EMPTY_JOB_FORM);
   const [jobEditMode, setJobEditMode] = useState(false);
+  const [pendingJobStatus, setPendingJobStatus] = useState(null);
   const jobFileRef = useRef();
 
   // --- Repairs state ---
@@ -114,6 +115,9 @@ export default function InventoryApp() {
   const [repairSearch, setRepairSearch] = useState("");
   const [repairForm, setRepairForm] = useState(EMPTY_REPAIR_FORM);
   const [repairEditMode, setRepairEditMode] = useState(false);
+  const [pendingRepairStatus, setPendingRepairStatus] = useState(null);
+  const [repairMaterialSelect, setRepairMaterialSelect] = useState("");
+  const [repairMaterialQty, setRepairMaterialQty] = useState("");
   const repairFileRef = useRef();
 
   // --- Persistence ---
@@ -175,12 +179,12 @@ export default function InventoryApp() {
     },
     deleteItem: (id) => { setItems(prev => prev.filter(i => i.id !== id)); setView("list"); },
     openAdd: () => {
-      setForm({ name: "", category: categories[0] || defaultCategory, location: locations[0] || "", status: "good", notes: "", photo: null });
+      setForm({ name: "", category: categories[0] || defaultCategory, location: locations[0] || "", status: "good", notes: "", photo: null, quantity: "", unit: "" });
       setEditMode(false); setShowAddCat(false); setNewCat(""); setShowAddLoc(false); setNewLoc("");
       setView("add");
     },
     openEdit: (item) => {
-      setForm({ name: item.name, category: item.category, location: item.location, status: item.status, notes: item.notes, photo: item.photo });
+      setForm({ name: item.name, category: item.category, location: item.location, status: item.status, notes: item.notes, photo: item.photo, quantity: item.quantity || "", unit: item.unit || "" });
       setEditMode(true); setView("add");
     },
   });
@@ -215,7 +219,7 @@ export default function InventoryApp() {
   const deleteJob = (id) => { setJobs(prev => prev.filter(j => j.id !== id)); setJobView("list"); };
   const openAddJob = () => { setJobForm(EMPTY_JOB_FORM); setJobEditMode(false); setJobView("add"); };
   const openEditJob = (job) => {
-    setJobForm({ title: job.title, client: job.client, phone: job.phone, address: job.address, status: job.status, dateScheduled: job.dateScheduled, dateCompleted: job.dateCompleted, estimatedCost: job.estimatedCost, actualCost: job.actualCost, photos: job.photos || [], notes: job.notes });
+    setJobForm({ title: job.title, client: job.client, phone: job.phone, address: job.address, status: job.status, dateScheduledOn: job.dateScheduledOn || job.dateScheduled || "", dateScheduledFor: job.dateScheduledFor || "", dateCompleted: job.dateCompleted, estimatedCost: job.estimatedCost, actualCost: job.actualCost, photos: job.photos || [], notes: job.notes });
     setJobEditMode(true); setJobView("add");
   };
 
@@ -229,15 +233,37 @@ export default function InventoryApp() {
     e.target.value = "";
   };
   const removeRepairPhoto = (idx) => setRepairForm(f => ({ ...f, photos: f.photos.filter((_, i) => i !== idx) }));
+
+  const applyMaterialDeductions = (materialsUsed) => {
+    if (!materialsUsed?.length) return;
+    setMaterials(prev => prev.map(m => {
+      const usage = materialsUsed.find(u => u.materialId === m.id);
+      if (!usage) return m;
+      const newQty = Math.max(0, (parseFloat(m.quantity) || 0) - (parseFloat(usage.quantity) || 0));
+      return { ...m, quantity: String(newQty) };
+    }));
+  };
+
   const saveRepair = () => {
     const today = new Date().toISOString().split("T")[0];
+    const isClosing = repairForm.status === "fixed" || repairForm.status === "cant_fix";
     if (repairEditMode && selectedRepair) {
       const updated = { ...selectedRepair, ...repairForm };
-      if ((repairForm.status === "fixed" || repairForm.status === "cant_fix") && !selectedRepair.dateClosed) updated.dateClosed = today;
+      if (isClosing && !selectedRepair.dateClosed) updated.dateClosed = today;
+      if (isClosing && !selectedRepair.materialsDeducted) {
+        applyMaterialDeductions(repairForm.materialsUsed);
+        updated.materialsDeducted = true;
+      }
       setRepairs(prev => prev.map(r => r.id === selectedRepair.id ? updated : r));
       setSelectedRepair(updated); setRepairView("detail");
     } else {
-      setRepairs(prev => [{ ...repairForm, id: Date.now(), dateOpened: today, dateClosed: null }, ...prev]);
+      const newRepair = { ...repairForm, id: Date.now(), dateOpened: today, dateClosed: null, materialsDeducted: false };
+      if (isClosing) {
+        applyMaterialDeductions(repairForm.materialsUsed);
+        newRepair.materialsDeducted = true;
+        newRepair.dateClosed = today;
+      }
+      setRepairs(prev => [newRepair, ...prev]);
       setRepairView("list");
     }
     setRepairEditMode(false);
@@ -245,7 +271,7 @@ export default function InventoryApp() {
   const deleteRepair = (id) => { setRepairs(prev => prev.filter(r => r.id !== id)); setRepairView("list"); };
   const openAddRepair = () => { setRepairForm(EMPTY_REPAIR_FORM); setRepairEditMode(false); setRepairView("add"); };
   const openEditRepair = (repair) => {
-    setRepairForm({ problem: repair.problem, description: repair.description, category: repair.category, location: repair.location, priority: repair.priority, status: repair.status, dueDate: repair.dueDate || "", jobId: repair.jobId || null, photos: repair.photos || [], partsNeeded: repair.partsNeeded, estimatedCost: repair.estimatedCost, actualCost: repair.actualCost, notes: repair.notes });
+    setRepairForm({ problem: repair.problem, description: repair.description, category: repair.category, location: repair.location, priority: repair.priority, status: repair.status, dueDate: repair.dueDate || "", jobId: repair.jobId || null, photos: repair.photos || [], partsNeeded: repair.partsNeeded, estimatedCost: repair.estimatedCost, actualCost: repair.actualCost, notes: repair.notes, materialsUsed: repair.materialsUsed || [], materialsDeducted: repair.materialsDeducted || false });
     setRepairEditMode(true); setRepairView("add");
   };
 
@@ -354,6 +380,11 @@ export default function InventoryApp() {
         <div style={st.detailName}>{item.name}</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
           <span style={st.badge(STATUS[item.status].color, STATUS[item.status].bg)}>{STATUS[item.status].label}</span>
+          {item.quantity !== undefined && item.quantity !== "" && (
+            <span style={{ ...st.tag, color: parseFloat(item.quantity) === 0 ? "#ef4444" : "#f97316", fontWeight: 700 }}>
+              {item.quantity}{item.unit ? ` ${item.unit}` : ""} in stock
+            </span>
+          )}
           <span style={st.tag}>{item.category}</span>
           <span style={st.tag}>📍 {item.location}</span>
         </div>
@@ -452,6 +483,18 @@ export default function InventoryApp() {
             {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
+        {label === "MATERIAL" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={st.formLabel}>Quantity</label>
+              <input style={st.formInput} placeholder="e.g. 10" type="number" min="0" step="any" value={form.quantity || ""} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+            </div>
+            <div>
+              <label style={st.formLabel}>Unit</label>
+              <input style={st.formInput} placeholder="e.g. ft, pcs, bags" value={form.unit || ""} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} />
+            </div>
+          </div>
+        )}
         <div style={st.formGroup}>
           <label style={st.formLabel}>Notes</label>
           <textarea style={{ ...st.formInput, minHeight: 80, resize: "vertical" }} placeholder="Any notes..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
@@ -496,6 +539,11 @@ export default function InventoryApp() {
               <div style={st.cardName}>{item.name}</div>
               <div style={st.cardMeta}>
                 <span style={st.badge(STATUS[item.status].color, STATUS[item.status].bg)}>{STATUS[item.status].label}</span>
+                {item.quantity !== undefined && item.quantity !== "" && (
+                  <span style={{ ...st.tag, color: parseFloat(item.quantity) === 0 ? "#ef4444" : "#f97316", fontWeight: 700 }}>
+                    {item.quantity}{item.unit ? ` ${item.unit}` : ""}
+                  </span>
+                )}
                 <span style={st.tag}>{item.category}</span>
                 <span style={st.tag}>📍 {item.location}</span>
               </div>
@@ -518,7 +566,7 @@ export default function InventoryApp() {
     return (
       <>
         <div style={st.detailHeader}>
-          <button style={st.backBtn} onClick={() => setRepairView("list")}>← Back</button>
+          <button style={st.backBtn} onClick={() => { setRepairView("list"); setPendingRepairStatus(null); }}>← Back</button>
           <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.1em" }}>REPAIR DETAIL</span>
         </div>
         {repair.photos && repair.photos.length > 0 && (
@@ -541,17 +589,33 @@ export default function InventoryApp() {
           </div>
           <div style={{ fontSize: 11, color: "#444", marginBottom: 12, letterSpacing: "0.1em" }}>QUICK STATUS CHANGE</div>
           <div style={st.statusRow}>
-            {Object.entries(REPAIR_STATUS).map(([k, v]) => (
-              <button key={k} style={st.statusBtn(v.color, v.bg, repair.status === k)}
-                onClick={() => {
-                  const today = new Date().toISOString().split("T")[0];
-                  const dateClosed = (k === "fixed" || k === "cant_fix") && !repair.dateClosed ? today : repair.dateClosed;
-                  setRepairs(prev => prev.map(r => r.id === repair.id ? { ...r, status: k, dateClosed } : r));
-                }}>
-                {v.label}
-              </button>
-            ))}
+            {Object.entries(REPAIR_STATUS).map(([k, v]) => {
+              const activeStatus = pendingRepairStatus ?? repair.status;
+              return (
+                <button key={k} style={st.statusBtn(v.color, v.bg, activeStatus === k)}
+                  onClick={() => setPendingRepairStatus(k === repair.status ? null : k)}>
+                  {v.label}
+                </button>
+              );
+            })}
           </div>
+          {pendingRepairStatus && pendingRepairStatus !== repair.status && (
+            <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+              <button style={st.btnPrimary} onClick={() => {
+                const today = new Date().toISOString().split("T")[0];
+                const isClosing = pendingRepairStatus === "fixed" || pendingRepairStatus === "cant_fix";
+                const dateClosed = isClosing && !repair.dateClosed ? today : repair.dateClosed;
+                if (isClosing && !repair.materialsDeducted) applyMaterialDeductions(repair.materialsUsed);
+                setRepairs(prev => prev.map(r => r.id === repair.id ? { ...r, status: pendingRepairStatus, dateClosed, materialsDeducted: isClosing ? true : r.materialsDeducted } : r));
+                setPendingRepairStatus(null);
+              }}>
+                Save — {REPAIR_STATUS[pendingRepairStatus]?.label}
+              </button>
+              <button style={{ ...st.btnDanger, flex: "none", padding: "11px 14px" }} onClick={() => setPendingRepairStatus(null)}>
+                Cancel
+              </button>
+            </div>
+          )}
           {repair.description && (
             <>
               <div style={{ fontSize: 11, color: "#444", marginTop: 16, marginBottom: 6, letterSpacing: "0.1em" }}>DESCRIPTION</div>
@@ -654,6 +718,47 @@ export default function InventoryApp() {
           <label style={st.formLabel}>Parts Needed</label>
           <textarea style={{ ...st.formInput, minHeight: 60, resize: "vertical" }} placeholder="List parts, materials, or supplies needed..." value={repairForm.partsNeeded} onChange={e => setRepairForm(f => ({ ...f, partsNeeded: e.target.value }))} />
         </div>
+        <div style={st.formGroup}>
+          <label style={st.formLabel}>Materials Used</label>
+          {repairForm.materialsUsed.length > 0 && (
+            <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+              {repairForm.materialsUsed.map((u, i) => {
+                const mat = materials.find(m => m.id === u.materialId);
+                return (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0f0f0f", border: "1px solid #1e1e1e", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 13, color: "#e5e5e5" }}>{u.materialName}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: "#f97316" }}>{u.quantity}{mat?.unit ? ` ${mat.unit}` : ""}</span>
+                      <button onClick={() => setRepairForm(f => ({ ...f, materialsUsed: f.materialsUsed.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#ef444466", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6 }}>
+            <select style={{ ...st.formSelect, flex: 2 }} value={repairMaterialSelect} onChange={e => setRepairMaterialSelect(e.target.value)}>
+              <option value="">— Select material —</option>
+              {materials.filter(m => m.quantity !== "" && parseFloat(m.quantity) > 0).map(m => (
+                <option key={m.id} value={m.id}>{m.name} ({m.quantity}{m.unit ? ` ${m.unit}` : ""})</option>
+              ))}
+            </select>
+            <input style={{ ...st.formInput, flex: 1, padding: "10px 8px" }} placeholder="Qty" type="number" min="0" step="any" value={repairMaterialQty} onChange={e => setRepairMaterialQty(e.target.value)} />
+            <button style={{ ...st.btnPrimary, flex: "none", padding: "10px 12px" }} onClick={() => {
+              if (!repairMaterialSelect || !repairMaterialQty) return;
+              const mat = materials.find(m => m.id === Number(repairMaterialSelect));
+              if (!mat) return;
+              const already = repairForm.materialsUsed.find(u => u.materialId === mat.id);
+              if (already) {
+                setRepairForm(f => ({ ...f, materialsUsed: f.materialsUsed.map(u => u.materialId === mat.id ? { ...u, quantity: String(parseFloat(u.quantity) + parseFloat(repairMaterialQty)) } : u) }));
+              } else {
+                setRepairForm(f => ({ ...f, materialsUsed: [...f.materialsUsed, { materialId: mat.id, materialName: mat.name, quantity: repairMaterialQty }] }));
+              }
+              setRepairMaterialSelect(""); setRepairMaterialQty("");
+            }}>Add</button>
+          </div>
+          {repairForm.materialsDeducted && <div style={{ fontSize: 11, color: "#22c55e", marginTop: 6 }}>✓ Materials already deducted from inventory</div>}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
           <div>
             <label style={st.formLabel}>Est. Cost ($)</label>
@@ -702,7 +807,7 @@ export default function InventoryApp() {
           const today = new Date().toISOString().split("T")[0];
           const isOverdue = repair.dueDate && repair.dueDate < today && repair.status !== "fixed" && repair.status !== "cant_fix";
           return (
-            <div key={repair.id} style={{ ...st.card, border: isOverdue ? "1px solid #ef444433" : "1px solid #1e1e1e" }} onClick={() => { setSelectedRepair(repair); setRepairView("detail"); }}>
+            <div key={repair.id} style={{ ...st.card, border: isOverdue ? "1px solid #ef444433" : "1px solid #1e1e1e" }} onClick={() => { setSelectedRepair(repair); setRepairView("detail"); setPendingRepairStatus(null); }}>
               <div style={st.cardTop(isOverdue ? "#ef4444" : rp.color)}>
                 <div style={st.cardName}>{repair.problem || "Untitled Repair"}</div>
                 <div style={st.cardMeta}>
@@ -751,9 +856,9 @@ export default function InventoryApp() {
           const today = new Date().toISOString().split("T")[0];
           const linked = repairs.filter(r => r.jobId === job.id && r.status !== "fixed" && r.status !== "cant_fix");
           const overdueCount = linked.filter(r => r.dueDate && r.dueDate < today).length;
-          const nextDue = linked.filter(r => r.dueDate && r.dueDate >= today).map(r => r.dueDate).sort()[0] || job.dateScheduled || null;
+          const nextDue = linked.filter(r => r.dueDate && r.dueDate >= today).map(r => r.dueDate).sort()[0] || job.dateScheduledFor || job.dateScheduled || null;
           return (
-            <div key={job.id} style={{ ...st.card, border: overdueCount > 0 ? "1px solid #ef444433" : "1px solid #1e1e1e" }} onClick={() => { setSelectedJob(job); setJobView("detail"); }}>
+            <div key={job.id} style={{ ...st.card, border: overdueCount > 0 ? "1px solid #ef444433" : "1px solid #1e1e1e" }} onClick={() => { setSelectedJob(job); setJobView("detail"); setPendingJobStatus(null); }}>
               <div style={st.cardTop(overdueCount > 0 ? "#ef4444" : js.color)}>
                 <div style={st.cardName}>{job.title || "Untitled Job"}</div>
                 <div style={st.cardMeta}>
@@ -777,7 +882,7 @@ export default function InventoryApp() {
     return (
       <>
         <div style={st.detailHeader}>
-          <button style={st.backBtn} onClick={() => setJobView("list")}>← Back</button>
+          <button style={st.backBtn} onClick={() => { setJobView("list"); setPendingJobStatus(null); }}>← Back</button>
           <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.1em" }}>JOB DETAIL</span>
         </div>
         {job.photos && job.photos.length > 0 && (
@@ -795,27 +900,57 @@ export default function InventoryApp() {
           </div>
           <div style={{ fontSize: 11, color: "#444", marginBottom: 12, letterSpacing: "0.1em" }}>QUICK STATUS CHANGE</div>
           <div style={st.statusRow}>
-            {Object.entries(JOB_STATUS).map(([k, v]) => (
-              <button key={k} style={st.statusBtn(v.color, v.bg, job.status === k)}
-                onClick={() => {
-                  const today = new Date().toISOString().split("T")[0];
-                  const dateCompleted = k === "complete" && !job.dateCompleted ? today : job.dateCompleted;
-                  setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: k, dateCompleted } : j));
-                }}>
-                {v.label}
-              </button>
-            ))}
+            {Object.entries(JOB_STATUS).map(([k, v]) => {
+              const activeStatus = pendingJobStatus ?? job.status;
+              return (
+                <button key={k} style={st.statusBtn(v.color, v.bg, activeStatus === k)}
+                  onClick={() => setPendingJobStatus(k === job.status ? null : k)}>
+                  {v.label}
+                </button>
+              );
+            })}
           </div>
-          {(job.phone || job.address) && (
-            <div style={{ marginTop: 16 }}>
-              {job.phone && <div style={st.detailRow}><span style={st.detailLabel}>Phone</span><span style={st.detailValue}>{job.phone}</span></div>}
-              {job.address && <div style={st.detailRow}><span style={st.detailLabel}>Address</span><span style={{ ...st.detailValue, maxWidth: "60%" }}>{job.address}</span></div>}
-              {job.dateScheduled && <div style={st.detailRow}><span style={st.detailLabel}>Scheduled</span><span style={st.detailValue}>{job.dateScheduled}</span></div>}
-              {job.dateCompleted && <div style={st.detailRow}><span style={st.detailLabel}>Completed</span><span style={st.detailValue}>{job.dateCompleted}</span></div>}
-              {job.estimatedCost && <div style={st.detailRow}><span style={st.detailLabel}>Est. Cost</span><span style={st.detailValue}>${job.estimatedCost}</span></div>}
-              {job.actualCost && <div style={st.detailRow}><span style={st.detailLabel}>Actual Cost</span><span style={st.detailValue}>${job.actualCost}</span></div>}
+          {pendingJobStatus && pendingJobStatus !== job.status && (
+            <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+              <button style={st.btnPrimary} onClick={() => {
+                const today = new Date().toISOString().split("T")[0];
+                const dateCompleted = pendingJobStatus === "complete" && !job.dateCompleted ? today : job.dateCompleted;
+                setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: pendingJobStatus, dateCompleted } : j));
+                setPendingJobStatus(null);
+              }}>
+                Save — {JOB_STATUS[pendingJobStatus]?.label}
+              </button>
+              <button style={{ ...st.btnDanger, flex: "none", padding: "11px 14px" }} onClick={() => setPendingJobStatus(null)}>
+                Cancel
+              </button>
             </div>
           )}
+          {(() => {
+            const today = new Date().toISOString().split("T")[0];
+            const linkedActive = repairs.filter(r => r.jobId === job.id && r.status !== "fixed" && r.status !== "cant_fix");
+            const scheduledFor = linkedActive.filter(r => r.dueDate && r.dueDate >= today).map(r => r.dueDate).sort()[0] || job.dateScheduledFor || null;
+            const scheduledOn = job.dateScheduledOn || job.dateScheduled || null;
+            const derivedFromRepairs = linkedActive.some(r => r.dueDate && r.dueDate >= today);
+            return (
+              <div style={{ marginTop: 16 }}>
+                {job.phone && <div style={st.detailRow}><span style={st.detailLabel}>Phone</span><span style={st.detailValue}>{job.phone}</span></div>}
+                {job.address && <div style={st.detailRow}><span style={st.detailLabel}>Address</span><span style={{ ...st.detailValue, maxWidth: "60%" }}>{job.address}</span></div>}
+                {scheduledOn && <div style={st.detailRow}><span style={st.detailLabel}>Scheduled On</span><span style={st.detailValue}>{scheduledOn}</span></div>}
+                {scheduledFor && (
+                  <div style={st.detailRow}>
+                    <span style={st.detailLabel}>Scheduled For</span>
+                    <span style={{ ...st.detailValue, display: "flex", alignItems: "center", gap: 6 }}>
+                      {scheduledFor}
+                      {derivedFromRepairs && <span style={{ fontSize: 9, color: "#3b82f6", letterSpacing: "0.08em", textTransform: "uppercase" }}>auto</span>}
+                    </span>
+                  </div>
+                )}
+                {job.dateCompleted && <div style={st.detailRow}><span style={st.detailLabel}>Completed</span><span style={st.detailValue}>{job.dateCompleted}</span></div>}
+                {job.estimatedCost && <div style={st.detailRow}><span style={st.detailLabel}>Est. Cost</span><span style={st.detailValue}>${job.estimatedCost}</span></div>}
+                {job.actualCost && <div style={st.detailRow}><span style={st.detailLabel}>Actual Cost</span><span style={st.detailValue}>${job.actualCost}</span></div>}
+              </div>
+            );
+          })()}
           {job.notes && (
             <>
               <div style={{ fontSize: 11, color: "#444", marginTop: 16, marginBottom: 6, letterSpacing: "0.1em" }}>NOTES</div>
@@ -888,9 +1023,15 @@ export default function InventoryApp() {
             {Object.entries(JOB_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
-        <div style={st.formGroup}>
-          <label style={st.formLabel}>Date Scheduled</label>
-          <input style={st.formInput} type="date" value={jobForm.dateScheduled} onChange={e => setJobForm(f => ({ ...f, dateScheduled: e.target.value }))} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+          <div>
+            <label style={st.formLabel}>Scheduled On</label>
+            <input style={st.formInput} type="date" value={jobForm.dateScheduledOn} onChange={e => setJobForm(f => ({ ...f, dateScheduledOn: e.target.value }))} />
+          </div>
+          <div>
+            <label style={st.formLabel}>Scheduled For</label>
+            <input style={st.formInput} type="date" value={jobForm.dateScheduledFor} onChange={e => setJobForm(f => ({ ...f, dateScheduledFor: e.target.value }))} />
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
           <div>
