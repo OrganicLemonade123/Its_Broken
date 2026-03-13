@@ -1,5 +1,5 @@
 import { useState } from "react";
-import Anthropic from "@anthropic-ai/sdk";
+//import Anthropic from "@anthropic-ai/sdk";
 
 const SYSTEM_TYPES = [
   { id: "electrical",    label: "Electrical",           icon: "⚡", color: "#eab308", detail: "electrical systems including circuits, breakers, wiring, transformers, panels, contactors, relays, motor starters, and power distribution. Consider voltage levels (120V, 208V, 240V, 480V), phase configurations, and NEC code compliance." },
@@ -65,17 +65,29 @@ const VOLTAGE_SUGGESTIONS = {
   ],
 };
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+// const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+
+// async function callClaude(prompt) {
+//   if (!API_KEY || API_KEY === "your_api_key_here") throw new Error("NO_KEY");
+//   const client = new Anthropic({ apiKey: API_KEY, dangerouslyAllowBrowser: true });
+//   const message = await client.messages.create({
+//     model: "claude-sonnet-4-6",
+//     max_tokens: 4096,
+//     messages: [{ role: "user", content: prompt }],
+//   });
+//   const text = message.content[0].text;
+//   const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/) || text.match(/(\{[\s\S]*\})/);
+//   return JSON.parse(jsonMatch ? jsonMatch[1] : text);
+// }
 
 async function callClaude(prompt) {
-  if (!API_KEY || API_KEY === "your_api_key_here") throw new Error("NO_KEY");
-  const client = new Anthropic({ apiKey: API_KEY, dangerouslyAllowBrowser: true });
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
+  const response = await fetch("http://localhost:3001/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: prompt }),
   });
-  const text = message.content[0].text;
+  const data = await response.json();
+  const text = data.reply;
   const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/) || text.match(/(\{[\s\S]*\})/);
   return JSON.parse(jsonMatch ? jsonMatch[1] : text);
 }
